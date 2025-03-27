@@ -1,0 +1,30 @@
+# Copy next to your service as shipline.yaml.
+# AWS_ACCOUNT_ID / AWS_REGION / SHIPLINE_EKS_CLUSTER / SHIPLINE_NAMESPACE env vars override these.
+app: hello-service
+
+aws:
+  region: us-east-1
+  account_id: "000000000000"
+  ecr_repository: hello-service
+  eks_cluster: shipline-demo
+
+docker:
+  context: .
+  dockerfile: Dockerfile
+  platform: linux/amd64
+
+checks:
+  lint: ruff check .
+  typecheck: mypy app
+  tests: pytest -q
+  junit_xml: reports/junit.xml
+
+kube:
+  namespace: hello
+  manifests_dir: k8s
+  deployment: hello-service
+  container: hello-service
+  rollout_timeout: 180s
+  auto_rollback: true
+
+history_limit: 20
