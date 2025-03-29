@@ -29,8 +29,8 @@ class CommandResult:
 class CommandRunner:
     """Runs commands, or just logs them when dry_run is set.
 
-    `secret_args` lets callers mark argument values that must never appear in logs
-    (e.g. an ECR password piped via stdin is never an argument, but be defensive).
+    Secrets (such as the ECR login password) are passed through stdin via
+    `input_text`, never as arguments, so they never reach the logs or `history`.
     """
 
     dry_run: bool = False
