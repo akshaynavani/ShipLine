@@ -10,7 +10,10 @@ from shipline import __version__
 from shipline.config import Config, load_config
 from shipline.errors import ShipLineError
 from shipline.logging_utils import get_logger, setup_logging
+from shipline.pipeline import Pipeline
 from shipline.runner import CommandRunner
+from shipline.stages.base import PipelineContext
+from shipline.stages.checks import ChecksStage
 
 log = get_logger("cli")
 
@@ -37,6 +40,12 @@ def cmd_validate(args: argparse.Namespace, cfg: Config, runner: CommandRunner) -
     return 0
 
 
+@command("check")
+def cmd_check(args: argparse.Namespace, cfg: Config, runner: CommandRunner) -> int:
+    Pipeline([ChecksStage()]).run(PipelineContext(cfg=cfg, runner=runner))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="shipline",
@@ -53,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validate", help="validate shipline.yaml and print resolved settings")
+    sub.add_parser("check", help="run static analysis and pytest only")
     return parser
 
 
