@@ -1,0 +1,28 @@
+app: hello-service
+
+# account_id / region / cluster are normally supplied via AWS_ACCOUNT_ID,
+# AWS_REGION and SHIPLINE_EKS_CLUSTER so nothing account-specific is committed.
+aws:
+  region: us-east-1
+  account_id: "000000000000"
+  ecr_repository: hello-service
+  eks_cluster: shipline-demo
+
+docker:
+  context: .
+  dockerfile: Dockerfile
+  platform: linux/amd64
+
+checks:
+  lint: ruff check app tests
+  typecheck: mypy app --ignore-missing-imports
+  tests: pytest -q tests
+  junit_xml: reports/junit.xml
+
+kube:
+  namespace: hello
+  manifests_dir: k8s
+  deployment: hello-service
+  container: hello-service
+  rollout_timeout: 180s
+  auto_rollback: true
