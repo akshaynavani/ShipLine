@@ -12,8 +12,11 @@ from shipline.errors import ShipLineError
 from shipline.logging_utils import get_logger, setup_logging
 from shipline.pipeline import Pipeline
 from shipline.runner import CommandRunner
-from shipline.stages.base import PipelineContext
+from shipline.stages.base import PipelineContext, Stage
+from shipline.stages.build import BuildStage
 from shipline.stages.checks import ChecksStage
+from shipline.stages.publish import PublishStage
+from shipline.tagging import git_sha, make_tag, validate_tag
 
 log = get_logger("cli")
 
@@ -46,6 +49,51 @@ def cmd_check(args: argparse.Namespace, cfg: Config, runner: CommandRunner) -> i
     return 0
 
 
+def make_context(args: argparse.Namespace, cfg: Config, runner: CommandRunner) -> PipelineContext:
+    sha = git_sha(runner, cfg.root)
+    tag = validate_tag(args.tag) if getattr(args, "tag", None) else make_tag(sha)
+    log.info("release tag: %s", tag)
+    return PipelineContext(cfg=cfg, runner=runner, tag=tag, git_sha=sha)
+
+
+def _stages_for(args: argparse.Namespace, upto: str) -> list[Stage]:
+    order: list[tuple[str, Stage]] = [
+        ("checks", ChecksStage()),
+        ("build", BuildStage()),
+        ("publish", PublishStage()),
+    ]
+    stages: list[Stage] = []
+    for name, stage in order:
+        if name == "checks" and getattr(args, "skip_checks", False):
+            log.warning("skipping checks stage (--skip-checks)")
+        else:
+            stages.append(stage)
+        if name == upto:
+            break
+    return stages
+
+
+@command("build")
+def cmd_build(args: argparse.Namespace, cfg: Config, runner: CommandRunner) -> int:
+    ctx = make_context(args, cfg, runner)
+    Pipeline(_stages_for(args, "build")).run(ctx)
+    print(ctx.image)
+    return 0
+
+
+@command("publish")
+def cmd_publish(args: argparse.Namespace, cfg: Config, runner: CommandRunner) -> int:
+    ctx = make_context(args, cfg, runner)
+    Pipeline(_stages_for(args, "publish")).run(ctx)
+    print(ctx.image)
+    return 0
+
+
+def _add_release_flags(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--tag", help="override the generated image tag")
+    p.add_argument("--skip-checks", action="store_true", help="skip lint/typecheck/tests")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="shipline",
@@ -63,6 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("validate", help="validate shipline.yaml and print resolved settings")
     sub.add_parser("check", help="run static analysis and pytest only")
+    _add_release_flags(sub.add_parser("build", help="checks + docker build"))
+    _add_release_flags(sub.add_parser("publish", help="checks + build + push to ECR"))
     return parser
 
 
