@@ -81,22 +81,20 @@ class ReleaseStore(ABC):
         return None
 
     def previous_good(self, current_tag: str | None) -> Release | None:
-        """Most recent successful release with a different tag than what's running now.
+        """Pick the release to roll back to from the one currently running.
 
-        Walks history newest-first, skipping everything up to and including the most
-        recent occurrence of `current_tag`, so repeated rollbacks keep stepping back.
+        Only successful *deploy* records count as candidates (rollback records just
+        re-point at older tags). The target is the newest successful deploy made before
+        `current_tag` was first deployed, so repeated rollbacks keep stepping back
+        (C -> B -> A) instead of bouncing between the two newest releases.
         """
-        history = self.successful()
+        deploys = [r for r in self.successful() if r.kind == "deploy"]
         if current_tag:
-            idx = max((i for i, r in enumerate(history) if r.tag == current_tag), default=None)
-            if idx is not None:
-                # Look strictly before the current release, ignoring re-deploys of it.
-                candidates = [r for r in history[:idx] if r.tag != current_tag]
-                # Rollback records re-point at older tags; skip tags newer than current
-                # that were themselves rolled away from.
-                return candidates[-1] if candidates else None
-        others = [r for r in history if r.tag != current_tag]
-        return others[-1] if others else None
+            first = next((i for i, r in enumerate(deploys) if r.tag == current_tag), None)
+            if first is not None:
+                deploys = deploys[:first]
+        candidates = [r for r in deploys if r.tag != current_tag]
+        return candidates[-1] if candidates else None
 
 
 class LocalReleaseStore(ReleaseStore):
