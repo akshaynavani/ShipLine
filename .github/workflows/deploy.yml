@@ -1,0 +1,73 @@
+name: ship hello-service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/hello-service/**"
+      - "shipline/**"
+  workflow_dispatch:
+    inputs:
+      rollback_to:
+        description: "Release tag to roll back to (leave empty to deploy HEAD)"
+        required: false
+        default: ""
+
+permissions:
+  id-token: write   # OIDC token for assuming the AWS deploy role
+  contents: read
+
+concurrency:
+  group: deploy-hello-service
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+  SHIPLINE_EKS_CLUSTER: ${{ vars.EKS_CLUSTER }}
+  SERVICE_DIR: examples/hello-service
+
+jobs:
+  shipline-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: ruff check shipline tests
+      - run: mypy shipline
+      - run: pytest -q
+
+  ship:
+    needs: shipline-tests
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ShipLine and service dev deps
+        run: |
+          pip install -e .
+          pip install -r "$SERVICE_DIR/requirements-dev.txt"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: azure/setup-kubectl@v4
+      - name: Ship
+        if: ${{ github.event.inputs.rollback_to == '' }}
+        run: scripts/ship.sh "$SERVICE_DIR"
+      - name: Rollback
+        if: ${{ github.event.inputs.rollback_to != '' }}
+        run: scripts/rollback.sh "$SERVICE_DIR" "${{ github.event.inputs.rollback_to }}"
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit
+          path: ${{ env.SERVICE_DIR }}/reports/junit.xml
+          if-no-files-found: ignore
